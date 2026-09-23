@@ -965,6 +965,23 @@ cc = 3
     assert parse(doc.as_string())["a"] == {"aa": 1}
 
 
+def test_empty_dotted_key_table_does_not_capture_following_keys() -> None:
+    # https://github.com/bakeoff-dev/tomlkit/issues/4
+    content = """a.b = 1
+c.d = 2
+"""
+    doc = parse(content)
+    doc["a"] = {}
+    assert (
+        doc.as_string()
+        == """c.d = 2
+[a]
+
+"""
+    )
+    assert parse(doc.as_string()) == {"a": {}, "c": {"d": 2}}
+
+
 def test_replace_preserve_sep() -> None:
     content = """a   =   1
 

@@ -807,6 +807,54 @@ class Container(_CustomDict):  # type: ignore[type-arg]
             self[key] = default
         return self[key]
 
+    def _is_captured_by_preceding_concrete_table(
+        self, key: Key | None, item: Item
+    ) -> bool:
+        if key is None or isinstance(item, (Whitespace, Null)):
+            return True
+        if isinstance(item, AoT):
+            return False
+        if isinstance(item, Table):
+            return item.is_super_table()
+        return True
+
+    def _shift_map_indices(self, start: int, delta: int) -> None:
+        for map_key, map_idx in list(self._map.items()):
+            if isinstance(map_idx, tuple):
+                self._map[map_key] = tuple(
+                    i + delta if i >= start else i for i in map_idx
+                )
+            elif map_idx >= start:
+                self._map[map_key] = map_idx + delta
+
+    def _relocate_after_captured_siblings(self, idx: int) -> None:
+        """Move a concrete table past siblings that would belong to it on round-trip."""
+        end = idx
+        while end + 1 < len(self._body):
+            next_key, next_item = self._body[end + 1]
+            if not self._is_captured_by_preceding_concrete_table(
+                next_key, next_item
+            ):
+                break
+            end += 1
+
+        if end == idx:
+            return
+
+        self._validation_cache.clear()
+        entry = self._body.pop(idx)
+        key = entry[0]
+        if key is not None:
+            self._map.pop(key, None)
+
+        self._shift_map_indices(idx, -1)
+
+        insert_at = end
+        self._shift_map_indices(insert_at, 1)
+        self._body.insert(insert_at, entry)
+        if key is not None:
+            self._map[key] = insert_at
+
     def _replace(self, key: Key | str, new_key: Key | str, value: Item) -> None:
         if not isinstance(key, Key):
             key = SingleKey(key)
@@ -896,6 +944,13 @@ class Container(_CustomDict):  # type: ignore[type-arg]
 
             assert isinstance(new_key, Key)
             dict.__setitem__(self, new_key.key, value.value)
+
+            if (
+                isinstance(v, Table)
+                and v.is_super_table()
+                and not value.is_super_table()
+            ):
+                self._relocate_after_captured_siblings(idx)
 
     def __str__(self) -> str:
         return str(self.value)
