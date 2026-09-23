@@ -609,32 +609,97 @@ class Container(_CustomDict):  # type: ignore[type-arg]
     def as_string(self) -> str:
         """Render as TOML string."""
         s = ""
-        for k, v in self._body:
-            if k is not None:
-                if isinstance(v, Table):
+        i = 0
+        while i < len(self._body):
+            k, v = self._body[i]
+            if (
+                k is not None
+                and isinstance(v, Table)
+                and v.is_super_table()
+                and self._table_has_header_children(v)
+            ):
+                following_inline = self._count_following_inline_siblings(i)
+                if following_inline:
                     if (
                         s.strip(" ")
                         and not s.strip(" ").endswith("\n")
                         and "\n" not in v.trivia.indent
                     ):
                         s += "\n"
-                    s += self._render_table(k, v)
-                elif isinstance(v, AoT):
-                    if (
-                        s.strip(" ")
-                        and not s.strip(" ").endswith("\n")
-                        and "\n" not in v.trivia.indent
-                    ):
-                        s += "\n"
-                    s += self._render_aot(k, v)
-                else:
-                    s += self._render_simple_item(k, v)
-            else:
-                s += self._render_simple_item(k, v)
+                    s += self._render_table(k, v, part="inline")
+                    i += 1
+                    for _ in range(following_inline):
+                        s += self._render_body_entry(self._body[i][0], self._body[i][1], s)
+                        i += 1
+                    s += self._render_table(k, v, part="headers")
+                    continue
+
+            s += self._render_body_entry(k, v, s)
+            i += 1
 
         return s
 
-    def _render_table(self, key: Key, table: Table, prefix: str | None = None) -> str:
+    def _body_entry_renders_inline(self, key: Key, item: Item) -> bool:
+        if isinstance(item, AoT):
+            return False
+        if isinstance(item, Table):
+            return item.is_super_table() and key.is_dotted()
+        return True
+
+    def _table_has_header_children(self, table: Table) -> bool:
+        return any(
+            k is not None
+            and not isinstance(v, (Null, Whitespace))
+            and not self._body_entry_renders_inline(k, v)
+            for k, v in table.value.body
+        )
+
+    def _count_following_inline_siblings(self, idx: int) -> int:
+        count = 0
+        for k, v in self._body[idx + 1 :]:
+            if k is None or isinstance(v, (Null, Whitespace)):
+                continue
+            if self._body_entry_renders_inline(k, v):
+                count += 1
+            else:
+                break
+        return count
+
+    def _render_body_entry(
+        self, key: Key | None, item: Item, s: str
+    ) -> str:
+        cur = ""
+        if key is not None:
+            if isinstance(item, Table):
+                if (
+                    s.strip(" ")
+                    and not s.strip(" ").endswith("\n")
+                    and "\n" not in item.trivia.indent
+                ):
+                    cur += "\n"
+                cur += self._render_table(key, item)
+            elif isinstance(item, AoT):
+                if (
+                    s.strip(" ")
+                    and not s.strip(" ").endswith("\n")
+                    and "\n" not in item.trivia.indent
+                ):
+                    cur += "\n"
+                cur += self._render_aot(key, item)
+            else:
+                cur += self._render_simple_item(key, item)
+        else:
+            cur += self._render_simple_item(key, item)
+
+        return cur
+
+    def _render_table(
+        self,
+        key: Key,
+        table: Table,
+        prefix: str | None = None,
+        part: str = "all",
+    ) -> str:
         cur = ""
 
         if table.display_name is not None:
@@ -645,7 +710,7 @@ class Container(_CustomDict):  # type: ignore[type-arg]
             if prefix is not None:
                 _key = prefix + "." + _key
 
-        if (
+        if part != "inline" and (
             not table.is_super_table()
             or (
                 any(
@@ -684,6 +749,17 @@ class Container(_CustomDict):  # type: ignore[type-arg]
             cur += table.trivia.indent
 
         for k, v in table.value.body:
+            if k is None or isinstance(v, (Null, Whitespace)):
+                if part == "all":
+                    cur += self._render_simple_item(k, v)
+                continue
+
+            renders_inline = self._body_entry_renders_inline(k, v)
+            if part == "inline" and not renders_inline:
+                continue
+            if part == "headers" and renders_inline:
+                continue
+
             if isinstance(v, Table):
                 if (
                     cur.strip(" ")
@@ -691,7 +767,6 @@ class Container(_CustomDict):  # type: ignore[type-arg]
                     and "\n" not in v.trivia.indent
                 ):
                     cur += "\n"
-                assert k is not None
                 if v.is_super_table():
                     if k.is_dotted() and not key.is_dotted():
                         # Dotted key inside table
@@ -707,7 +782,6 @@ class Container(_CustomDict):  # type: ignore[type-arg]
                     and "\n" not in v.trivia.indent
                 ):
                     cur += "\n"
-                assert k is not None
                 cur += self._render_aot(k, v, prefix=_key)
             else:
                 cur += self._render_simple_item(

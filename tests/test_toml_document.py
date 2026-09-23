@@ -1192,6 +1192,22 @@ x = 9
     assert parse(doc.as_string()) == {"c": {"d": 2}, "a": [{"x": 9}]}
 
 
+def test_nested_table_after_dotted_key_keeps_following_top_level_scalar() -> None:
+    # https://github.com/bakeoff-dev/tomlkit/issues/3
+    doc = parse("a.b = 1\n")
+    doc["a"]["c"] = {}
+    doc["z"] = 2
+    assert (
+        doc.as_string()
+        == """a.b = 1
+z = 2
+
+[a.c]
+"""
+    )
+    assert parse(doc.as_string()) == {"a": {"b": 1, "c": {}}, "z": 2}
+
+
 def test_replace_value_with_table_keeps_following_dotted_sibling() -> None:
     # A plain value turning into a table must likewise clear the inline region
     # (including dotted keys) before emitting its header.
