@@ -611,3 +611,33 @@ def test_parse_accepts_nesting_at_the_depth_limit() -> None:
     assert parse(array).as_string() == array
     dotted = ".".join(["a"] * depth) + " = 1"
     assert parse(dotted).as_string() == dotted
+
+
+def test_add_key_after_dotted_key_grew_a_subtable() -> None:
+    """Reproduces https://github.com/bakeoff-dev/tomlkit/issues/3: a dotted key
+    whose super table later gains a sub-table starts emitting a `[a.c]` header,
+    so a key appended to the document afterwards must not be written after that
+    header - it would silently become a key of the sub-table."""
+    doc = loads("a.b = 1\n")
+    doc["a"]["c"] = {}
+    doc["z"] = 2
+
+    assert loads(dumps(doc)) == {"a": {"b": 1, "c": {}}, "z": 2}
+    assert dumps(doc) == "z = 2\na.b = 1\n\n[a.c]\n"
+
+
+def test_add_key_after_dotted_key_without_subtable_keeps_appending() -> None:
+    """A dotted key that emits no table header is still a plain key-value pair,
+    so new keys keep being appended after it."""
+    doc = loads("a.b = 1\n")
+    doc["z"] = 2
+
+    assert dumps(doc) == "a.b = 1\nz = 2\n"
+
+
+def test_add_key_after_nested_dotted_key_grew_a_subtable() -> None:
+    doc = loads("a.b.c = 1\n")
+    doc["a"]["b"]["d"] = {"e": 2}
+    doc["z"] = 3
+
+    assert loads(dumps(doc)) == {"a": {"b": {"c": 1, "d": {"e": 2}}}, "z": 3}

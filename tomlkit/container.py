@@ -159,8 +159,16 @@ class Container(_CustomDict):  # type: ignore[type-arg]
             if isinstance(v, Whitespace) and not v.is_fixed():
                 continue
 
-            if isinstance(v, (Table, AoT)) and k is not None and not k.is_dotted():
-                break
+            if isinstance(v, (Table, AoT)) and k is not None:
+                if not k.is_dotted():
+                    break
+                # A dotted key normally renders as a plain `a.b = 1` line, but
+                # once its super table holds a sub-table it also emits a
+                # `[a.b.c]` header.  Everything rendered after that header
+                # belongs to the sub-table, so it ends the key-value region
+                # just like a regular table does.
+                if isinstance(v, Table) and _emits_table_header(k, v):
+                    break
             last_index = i
         return last_index + 1
 
@@ -363,8 +371,16 @@ class Container(_CustomDict):  # type: ignore[type-arg]
             last_index = self._get_last_index_before_table()
 
             if last_index < len(self._body):
-                after_item = self._body[last_index][1]
-                if not (
+                after_key, after_item = self._body[last_index]
+                # The blank line separates the inserted key from the table
+                # header that follows it.  A dotted-key entry starts with plain
+                # `a.b = 1` lines instead, so it needs no separator.
+                starts_with_header = not (
+                    isinstance(after_item, Table)
+                    and after_key is not None
+                    and after_key.is_dotted()
+                )
+                if starts_with_header and not (
                     isinstance(after_item, Whitespace)
                     or "\n" in after_item.trivia.indent
                 ):
@@ -1243,6 +1259,41 @@ def ends_with_whitespace(it: Any) -> bool:
         previous = it.value._previous_item()
         return previous is not None and ends_with_whitespace(previous)
     return isinstance(it, AoT) and len(it) > 0 and ends_with_whitespace(it[-1])
+
+
+def _emits_table_header(key: Key, table: Table) -> bool:
+    """Whether rendering ``table`` under ``key`` writes out a ``[...]`` header.
+
+    Mirrors the header condition of :meth:`Container._render_table`, including
+    the headers emitted by nested tables.
+    """
+    if not table.is_super_table():
+        return True
+
+    if not key.is_dotted():
+        if any(
+            not isinstance(v, (Table, AoT, Whitespace, Null)) for _, v in table.value.body
+        ):
+            return True
+
+        if any(
+            k is not None and k.is_dotted()
+            for k, v in table.value.body
+            if isinstance(v, Table)
+        ):
+            return True
+
+    # The super table itself is implicit, but one of its children may still
+    # render a header - and that header is written at this position.
+    for k, v in table.value.body:
+        if k is None:
+            continue
+        if isinstance(v, AoT):
+            return True
+        if isinstance(v, Table) and _emits_table_header(k, v):
+            return True
+
+    return False
 
 
 def _equal_with_nan(left: Any, right: Any) -> bool:
