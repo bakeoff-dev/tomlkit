@@ -1617,3 +1617,81 @@ value = 5
 """
 
     assert doc.as_string() == expected
+
+
+def _single_aot() -> tomlkit.items.AoT:
+    aot = tomlkit.aot()
+    table = tomlkit.table()
+    table["x"] = 9
+    aot.append(table)
+    return aot
+
+
+def test_replace_dotted_key_with_aot_keeps_following_sibling() -> None:
+    # https://github.com/bakeoff-dev/tomlkit/issues/2
+    content = """a.b = 1
+c.d = 2
+"""
+    doc = parse(content)
+    doc["a"] = _single_aot()
+    # ``[[a]]`` must not swallow the following ``c.d`` dotted key.
+    assert (
+        doc.as_string()
+        == """c.d = 2
+
+[[a]]
+x = 9
+"""
+    )
+    assert parse(doc.as_string()) == {"c": {"d": 2}, "a": [{"x": 9}]}
+
+
+def test_replace_dotted_key_with_aot_keeps_following_value() -> None:
+    content = """a.b = 1
+c = 3
+"""
+    doc = parse(content)
+    doc["a"] = _single_aot()
+    assert (
+        doc.as_string()
+        == """c = 3
+
+[[a]]
+x = 9
+"""
+    )
+    assert parse(doc.as_string()) == {"c": 3, "a": [{"x": 9}]}
+
+
+def test_replace_dotted_key_with_aot_before_table() -> None:
+    content = """a.b = 1
+[z]
+q = 1
+"""
+    doc = parse(content)
+    doc["a"] = _single_aot()
+    # Nothing renders inline after ``a``, so the AoT stays in place, ahead of
+    # the existing ``[z]`` header.
+    assert (
+        doc.as_string()
+        == """[[a]]
+x = 9
+[z]
+q = 1
+"""
+    )
+    assert parse(doc.as_string()) == {"a": [{"x": 9}], "z": {"q": 1}}
+
+
+def test_replace_only_dotted_key_with_aot() -> None:
+    content = "a.b = 1\n"
+    doc = parse(content)
+    doc["a"] = _single_aot()
+    # The dotted prefix must be dropped instead of duplicated onto the header.
+    assert (
+        doc.as_string()
+        == """[[a]]
+x = 9
+"""
+    )
+    assert parse(doc.as_string()) == {"a": [{"x": 9}]}
