@@ -845,7 +845,20 @@ class Container(_CustomDict):  # type: ignore[type-arg]
         if new_key != k:
             dict.__delitem__(self, k.key)
 
-        if isinstance(value, (AoT, Table)) != isinstance(v, (AoT, Table)):
+        if (
+            isinstance(k, Key)
+            and k.is_dotted()
+            and isinstance(v, Table)
+            and v.is_super_table()
+            and isinstance(value, Table)
+            and not value.is_super_table()
+        ):
+            # A dotted-key super table is serialized among the root-level
+            # assignments. Once it becomes a concrete table, its header must
+            # follow those assignments or they would be parsed as children.
+            self.remove(k)
+            self.append(new_key, value)
+        elif isinstance(value, (AoT, Table)) != isinstance(v, (AoT, Table)):
             self.remove(k)
             if isinstance(value, (AoT, Table)):
                 # new tables should appear after all non-table values

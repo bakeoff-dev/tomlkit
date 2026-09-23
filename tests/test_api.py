@@ -365,6 +365,14 @@ def test_add_dotted_key() -> None:
     assert table.as_string() == "foo.bar = 1\n"
 
 
+def test_replacing_dotted_key_parent_does_not_capture_following_dotted_keys() -> None:
+    doc = tomlkit.loads("a.b = 1\nc.d = 2\n")
+
+    doc["a"] = {}
+
+    assert tomlkit.dumps(doc) == "c.d = 2\n[a]\n\n"
+
+
 def test_key_with_single_element_list_is_a_single_key() -> None:
     # Regression test for
     # https://github.com/python-poetry/tomlkit/issues/430: a one-element key
