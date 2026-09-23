@@ -222,7 +222,7 @@ class Container(_CustomDict):  # type: ignore[type-arg]
             if not self._parsed:
                 item.invalidate_display_name()
             if (
-                self._body
+                prev is not None
                 and not (self._parsed or item.trivia.indent or prev_ws)
                 and key is not None
                 and not key.is_dotted()
@@ -831,26 +831,35 @@ class Container(_CustomDict):  # type: ignore[type-arg]
 
         k, v = self._body[idx]
         assert k is not None
+        # A dotted key holds its value in a super table, but it is rendered as a
+        # `a.b = 1` line, so it lives among the values, not in the table region.
+        was_table = isinstance(v, (AoT, Table)) and not k.is_dotted()
+        is_table = isinstance(value, (AoT, Table))
         if not isinstance(new_key, Key):
-            if (
-                isinstance(value, (AoT, Table)) != isinstance(v, (AoT, Table))
-                or new_key != k.key
-            ):
+            if is_table != was_table or new_key != k.key or k.is_dotted():
+                # The old key's sep only fits the kind of item it was written
+                # for; a dotted key in particular carries no `= ` separator.
                 new_key = SingleKey(new_key)
             else:  # Inherit the sep of the old key
                 new_key = k
+        elif is_table and new_key.is_dotted():
+            # A table can't be attached to a dotted key
+            new_key = SingleKey(new_key.key, sep=new_key.sep)
 
         del self._map[k]
         self._map[new_key] = idx
         if new_key != k:
             dict.__delitem__(self, k.key)
 
-        if isinstance(value, (AoT, Table)) != isinstance(v, (AoT, Table)):
+        if is_table != was_table:
             self.remove(k)
-            if isinstance(value, (AoT, Table)):
+            if is_table:
                 # new tables should appear after all non-table values
                 for i in range(idx, len(self._body)):
-                    if isinstance(self._body[i][1], (AoT, Table)):
+                    i_key, i_value = self._body[i]
+                    if isinstance(i_value, (AoT, Table)) and not (
+                        i_key is not None and i_key.is_dotted()
+                    ):
                         self._insert_at(i, new_key, value)
                         idx = i
                         break

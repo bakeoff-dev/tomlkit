@@ -1456,3 +1456,122 @@ value = 5
 """
 
     assert doc.as_string() == expected
+
+
+def test_replace_dotted_key_with_table() -> None:
+    content = """\
+a.b = 1
+c.d = 2
+"""
+
+    doc = parse(content)
+    doc["a"] = {}
+
+    expected = """\
+c.d = 2
+
+[a]
+"""
+
+    assert doc.as_string() == expected
+    assert parse(doc.as_string()) == {"a": {}, "c": {"d": 2}}
+
+
+def test_replace_dotted_key_with_non_empty_table() -> None:
+    content = """\
+a.b = 1
+c.d = 2
+"""
+
+    doc = parse(content)
+    doc["a"] = {"x": 3}
+
+    expected = """\
+c.d = 2
+
+[a]
+x = 3
+"""
+
+    assert doc.as_string() == expected
+    assert parse(doc.as_string()) == {"a": {"x": 3}, "c": {"d": 2}}
+
+
+def test_replace_value_with_table_keeps_following_dotted_keys() -> None:
+    content = """\
+a = 1
+c.d = 2
+"""
+
+    doc = parse(content)
+    doc["a"] = {}
+
+    expected = """\
+c.d = 2
+
+[a]
+"""
+
+    assert doc.as_string() == expected
+    assert parse(doc.as_string()) == {"a": {}, "c": {"d": 2}}
+
+
+def test_replace_dotted_key_with_value() -> None:
+    content = """\
+a.b = 1
+c.d = 2
+"""
+
+    doc = parse(content)
+    doc["a"] = 3
+
+    expected = """\
+a = 3
+c.d = 2
+"""
+
+    assert doc.as_string() == expected
+    assert parse(doc.as_string()) == {"a": 3, "c": {"d": 2}}
+
+
+def test_replace_dotted_key_with_table_using_the_existing_key() -> None:
+    content = """\
+a.b = 1
+c.d = 2
+"""
+
+    doc = parse(content)
+    dotted_key = doc.body[0][0]
+    assert dotted_key.is_dotted()
+    doc[dotted_key] = {"x": 3}
+
+    expected = """\
+c.d = 2
+
+[a]
+x = 3
+"""
+
+    assert doc.as_string() == expected
+    assert parse(doc.as_string()) == {"a": {"x": 3}, "c": {"d": 2}}
+
+
+def test_replace_dotted_key_with_table_inside_table() -> None:
+    content = """\
+[t]
+a.b = 1
+c.d = 2
+"""
+
+    doc = parse(content)
+    doc["t"]["a"] = {}
+
+    expected = """\
+[t]
+c.d = 2
+
+[t.a]
+"""
+
+    assert doc.as_string() == expected
+    assert parse(doc.as_string()) == {"t": {"a": {}, "c": {"d": 2}}}
