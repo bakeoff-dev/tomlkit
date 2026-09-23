@@ -823,6 +823,13 @@ class Container(_CustomDict):  # type: ignore[type-arg]
         value = _item(value)
         self._validation_cache.clear()
 
+        def is_block_table(key: Key | str | None, val: Any) -> bool:
+            if not isinstance(val, (AoT, Table)):
+                return False
+            if key is None:
+                return False
+            return not (key.is_dotted() if isinstance(key, Key) else False)
+
         if isinstance(idx, tuple):
             for i in idx[1:]:
                 self._body[i] = (None, Null())
@@ -833,7 +840,7 @@ class Container(_CustomDict):  # type: ignore[type-arg]
         assert k is not None
         if not isinstance(new_key, Key):
             if (
-                isinstance(value, (AoT, Table)) != isinstance(v, (AoT, Table))
+                is_block_table(new_key, value) != is_block_table(k, v)
                 or new_key != k.key
             ):
                 new_key = SingleKey(new_key)
@@ -845,12 +852,12 @@ class Container(_CustomDict):  # type: ignore[type-arg]
         if new_key != k:
             dict.__delitem__(self, k.key)
 
-        if isinstance(value, (AoT, Table)) != isinstance(v, (AoT, Table)):
+        if is_block_table(new_key, value) != is_block_table(k, v):
             self.remove(k)
-            if isinstance(value, (AoT, Table)):
+            if is_block_table(new_key, value):
                 # new tables should appear after all non-table values
                 for i in range(idx, len(self._body)):
-                    if isinstance(self._body[i][1], (AoT, Table)):
+                    if is_block_table(self._body[i][0], self._body[i][1]):
                         self._insert_at(i, new_key, value)
                         idx = i
                         break
