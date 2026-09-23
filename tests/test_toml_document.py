@@ -1049,6 +1049,24 @@ name = 3
     assert doc.as_string() == content
 
 
+def test_replace_dotted_super_table_with_aot_does_not_capture_later_dotted_keys() -> None:
+    doc = parse("a.b = 1\nc.d = 2\n")
+    aot = tomlkit.aot()
+    table = tomlkit.table()
+    table["x"] = 9
+    aot.append(table)
+
+    doc["a"] = aot
+
+    assert doc.as_string() == """\
+c.d = 2
+
+[[a]]
+x = 9
+"""
+    assert parse(doc.as_string())["c"]["d"] == 2
+
+
 def test_replace_table_with_itself_preserves_display_name() -> None:
     content = """\
 [keys.a]
