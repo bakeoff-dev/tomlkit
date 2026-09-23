@@ -1210,6 +1210,16 @@ c.d = 2
     assert parse(doc.as_string()) == {"c": {"d": 2}, "x": {}}
 
 
+def test_adding_root_scalar_after_nested_table_stays_at_root() -> None:
+    # https://github.com/bakeoff-dev/tomlkit/issues/3
+    doc = parse("a.b = 1\n")
+    doc["a"]["c"] = {}
+    doc["z"] = 2
+
+    assert doc.as_string() == "a.b = 1\nz = 2\n\n[a.c]\n"
+    assert parse(doc.as_string()) == {"a": {"b": 1, "c": {}}, "z": 2}
+
+
 def test_replace_with_comment() -> None:
     content = 'a = "1"'
     doc = parse(content)
