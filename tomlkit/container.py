@@ -863,8 +863,9 @@ class Container(_CustomDict):  # type: ignore[type-arg]
         # its own ``[header]`` instead (a non-super table), keeping the dotted key
         # duplicates the prefix onto the header (#524). Drop the dotted key so the
         # replacement renders as a plain table.
-        dotted_to_header = (
-            k.is_dotted() and isinstance(value, Table) and not value.is_super_table()
+        dotted_to_header = k.is_dotted() and (
+            isinstance(value, AoT)
+            or (isinstance(value, Table) and not value.is_super_table())
         )
         # That new header also captures every sibling that renders inline -- plain
         # values and dotted keys -- if any still follow it (#513), so it must be
@@ -877,9 +878,20 @@ class Container(_CustomDict):  # type: ignore[type-arg]
             )
             for cur_key, cur_val in self._body[idx + 1 :]
         )
+        table_like_change = isinstance(value, (AoT, Table)) != isinstance(
+            v, (AoT, Table)
+        )
+        table_like_type_change = (
+            type(value) is not type(v)
+            and (isinstance(value, (AoT, Table)) or isinstance(v, (AoT, Table)))
+        )
+        reposition_item = (
+            table_like_change or table_like_type_change or reposition_dotted
+        )
         if not isinstance(new_key, Key):
             if (
-                isinstance(value, (AoT, Table)) != isinstance(v, (AoT, Table))
+                table_like_change
+                or table_like_type_change
                 or new_key != k.key
                 or dotted_to_header
             ):
@@ -892,10 +904,7 @@ class Container(_CustomDict):  # type: ignore[type-arg]
         if new_key != k:
             dict.__delitem__(self, k.key)
 
-        if (
-            isinstance(value, (AoT, Table)) != isinstance(v, (AoT, Table))
-            or reposition_dotted
-        ):
+        if reposition_item:
             self.remove(k)
             if isinstance(value, (AoT, Table)):
                 # New tables must appear after all entries that render inline:
