@@ -21,6 +21,10 @@
 
 ### Fixed
 
+- Fix a key added to a document after a dotted key grew a sub-table ending up inside that sub-table. A dotted key such as `a.b = 1` renders as a plain key-value line, so it was skipped when looking for the end of the key-value region — but once its super table gains a sub-table it also emits an `[a.c]` header, and the new key was written after it. ([#3](https://github.com/bakeoff-dev/tomlkit/issues/3))
+- Fix a sub-table added under a dotted key inside a table losing the enclosing table's prefix, e.g. `[t] a.b = 1` plus `doc["t"]["a"]["c"] = {}` rendering `[a.c]` instead of `[t.a.c]`, which moved the whole sub-table to the top level. ([#3](https://github.com/bakeoff-dev/tomlkit/issues/3))
+- Fix a key-value pair already following a dotted key being swallowed once that dotted key grew a sub-table and started emitting a table header. ([#3](https://github.com/bakeoff-dev/tomlkit/issues/3))
+
 - Fix `string()` dropping a leading newline of a multiline string on round-trip: a value beginning with a newline is now rendered with an extra leading newline (the one the parser trims after the opening delimiter) so it survives re-parsing.
 - Fix invalid serialization with a duplicated comma when removing a non-edge element from a parsed inline table. ([#486](https://github.com/python-poetry/tomlkit/pull/486))
 - Fix invalid serialization with a duplicated comma when appending or inserting into a comma-first formatted array. ([#499](https://github.com/python-poetry/tomlkit/pull/499))
