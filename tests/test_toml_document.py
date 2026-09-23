@@ -1639,3 +1639,16 @@ value = 5
 """
 
     assert doc.as_string() == expected
+
+
+def test_scalar_not_wrongly_captured_by_dictionary() -> None:
+    # Issue #3: output keys in the wrong order changing the meaning of the dictionary
+    doc = tomlkit.loads("a.b = 1\n")
+    doc["a"]["c"] = {}
+    doc["z"] = 2
+
+    assert tomlkit.dumps(doc) == "z = 2\n\na.b = 1\n\n[a.c]\n"
+    # Ensure it round-trips correctly and parses to the same data structure
+    reparsed = tomlkit.loads(tomlkit.dumps(doc))
+    assert reparsed == doc
+

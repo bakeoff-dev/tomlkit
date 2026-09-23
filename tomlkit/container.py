@@ -159,10 +159,22 @@ class Container(_CustomDict):  # type: ignore[type-arg]
             if isinstance(v, Whitespace) and not v.is_fixed():
                 continue
 
-            if isinstance(v, (Table, AoT)) and k is not None and not k.is_dotted():
-                break
+            if isinstance(v, (Table, AoT)) and k is not None:
+                if not k.is_dotted() or self._renders_a_table_header(v):
+                    break
             last_index = i
         return last_index + 1
+
+    def _renders_a_table_header(self, v: Any) -> bool:
+        if isinstance(v, AoT):
+            return True
+        if isinstance(v, Table):
+            if not v.is_super_table():
+                return True
+            for _, child in v.value.body:
+                if isinstance(child, (Table, AoT)) and self._renders_a_table_header(child):
+                    return True
+        return False
 
     def _validate_out_of_order_table(self, key: Key | None = None) -> None:
         if key is None:
