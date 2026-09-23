@@ -625,7 +625,7 @@ class Container(_CustomDict):  # type: ignore[type-arg]
     def as_string(self) -> str:
         """Render as TOML string."""
         s = ""
-        for k, v in self._body:
+        for k, v in _body_in_render_order(self._body):
             if k is not None:
                 if isinstance(v, Table):
                     if (
@@ -650,7 +650,24 @@ class Container(_CustomDict):  # type: ignore[type-arg]
 
         return s
 
-    def _render_table(self, key: Key, table: Table, prefix: str | None = None) -> str:
+    def _render_table(
+        self,
+        key: Key,
+        table: Table,
+        prefix: str | None = None,
+        dotted_prefix: str | None = None,
+    ) -> str:
+        """Render ``table``.
+
+        ``prefix`` is the absolute path of the enclosing table and is used to
+        build the ``[...]`` headers of this table and its children.
+
+        ``dotted_prefix`` is the path a dotted key line is written relative to.
+        The two differ inside a table: under ``[t]``, the dotted key ``a.b`` is
+        written as ``a.b = 1`` (relative to ``t``) while a sub-table of ``a``
+        still needs the absolute header ``[t.a.c]``.  ``None`` means the two
+        coincide, which is the case at the top level of a document.
+        """
         cur = ""
 
         if table.display_name is not None:
@@ -660,6 +677,13 @@ class Container(_CustomDict):  # type: ignore[type-arg]
 
             if prefix is not None:
                 _key = prefix + "." + _key
+
+        if dotted_prefix is None:
+            _dotted_key = _key
+        elif dotted_prefix:
+            _dotted_key = dotted_prefix + "." + key.as_string()
+        else:
+            _dotted_key = key.as_string()
 
         if (
             not table.is_super_table()
@@ -699,7 +723,7 @@ class Container(_CustomDict):  # type: ignore[type-arg]
         elif table.trivia.indent == "\n":
             cur += table.trivia.indent
 
-        for k, v in table.value.body:
+        for k, v in _body_in_render_order(table.value.body):
             if isinstance(v, Table):
                 if (
                     cur.strip(" ")
@@ -710,10 +734,14 @@ class Container(_CustomDict):  # type: ignore[type-arg]
                 assert k is not None
                 if v.is_super_table():
                     if k.is_dotted() and not key.is_dotted():
-                        # Dotted key inside table
-                        cur += self._render_table(k, v)
+                        # Dotted key inside table: its own key-value lines are
+                        # relative to this table, but its sub-tables still need
+                        # the absolute header path.
+                        cur += self._render_table(k, v, prefix=_key, dotted_prefix="")
                     else:
-                        cur += self._render_table(k, v, prefix=_key)
+                        cur += self._render_table(
+                            k, v, prefix=_key, dotted_prefix=_dotted_key
+                        )
                 else:
                     cur += self._render_table(k, v, prefix=_key)
             elif isinstance(v, AoT):
@@ -727,7 +755,7 @@ class Container(_CustomDict):  # type: ignore[type-arg]
                 cur += self._render_aot(k, v, prefix=_key)
             else:
                 cur += self._render_simple_item(
-                    k, v, prefix=_key if key.is_dotted() else None
+                    k, v, prefix=_dotted_key if key.is_dotted() else None
                 )
 
         return cur
@@ -759,13 +787,13 @@ class Container(_CustomDict):  # type: ignore[type-arg]
             f"{table.trivia.trail}"
         )
 
-        for k, v in table.value.body:
+        for k, v in _body_in_render_order(table.value.body):
             if isinstance(v, Table):
                 assert k is not None
                 if v.is_super_table():
                     if k.is_dotted():
-                        # Dotted key inside table
-                        cur += self._render_table(k, v)
+                        # Dotted key inside table: see _render_table
+                        cur += self._render_table(k, v, prefix=_key, dotted_prefix="")
                     else:
                         cur += self._render_table(k, v, prefix=_key)
                 else:
@@ -1261,6 +1289,43 @@ def ends_with_whitespace(it: Any) -> bool:
     return isinstance(it, AoT) and len(it) > 0 and ends_with_whitespace(it[-1])
 
 
+def _body_in_render_order(
+    body: list[tuple[Key | None, Item]],
+) -> list[tuple[Key | None, Item]]:
+    """Order a container body so no key-value pair is swallowed by a table.
+
+    A dotted key renders as a plain ``a.b = 1`` line, so it is stored in the
+    key-value region of the body.  Once its super table gains a sub-table it
+    also starts emitting a ``[a.c]`` header, and any key-value pair sitting
+    after it in the body would then be parsed back as a key of that
+    sub-table.  Move those pairs in front of the header instead.
+
+    For every container that is already well ordered - which is every
+    container that came straight from the parser - this returns ``body``
+    unchanged.
+    """
+    for i, (k, v) in enumerate(body):
+        if (
+            k is not None
+            and isinstance(v, Table)
+            and k.is_dotted()
+            and _emits_table_header(k, v)
+        ):
+            break
+    else:
+        return body
+
+    def is_key_value(entry: tuple[Key | None, Item]) -> bool:
+        k, v = entry
+        return k is not None and not isinstance(v, (Table, AoT))
+
+    swallowed = [entry for entry in body[i:] if is_key_value(entry)]
+    if not swallowed:
+        return body
+
+    return body[:i] + swallowed + [e for e in body[i:] if not is_key_value(e)]
+
+
 def _emits_table_header(key: Key, table: Table) -> bool:
     """Whether rendering ``table`` under ``key`` writes out a ``[...]`` header.
 
@@ -1272,7 +1337,8 @@ def _emits_table_header(key: Key, table: Table) -> bool:
 
     if not key.is_dotted():
         if any(
-            not isinstance(v, (Table, AoT, Whitespace, Null)) for _, v in table.value.body
+            not isinstance(v, (Table, AoT, Whitespace, Null))
+            for _, v in table.value.body
         ):
             return True
 

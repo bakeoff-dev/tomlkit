@@ -641,3 +641,65 @@ def test_add_key_after_nested_dotted_key_grew_a_subtable() -> None:
     doc["z"] = 3
 
     assert loads(dumps(doc)) == {"a": {"b": {"c": 1, "d": {"e": 2}}}, "z": 3}
+
+
+def test_subtable_of_dotted_key_inside_table_keeps_parent_prefix() -> None:
+    """A dotted key inside `[t]` renders relative to `t` (`a.b = 1`), but the
+    header of a sub-table it gains is absolute and must keep the `t.` prefix -
+    otherwise the whole sub-table escapes to the top level."""
+    doc = loads("[t]\na.b = 1\n")
+    doc["t"]["a"]["c"] = {"q": 1}
+
+    assert dumps(doc) == "[t]\na.b = 1\n\n[t.a.c]\nq = 1\n"
+    assert loads(dumps(doc)) == {"t": {"a": {"b": 1, "c": {"q": 1}}}}
+
+
+def test_subtable_of_dotted_key_inside_aot_keeps_parent_prefix() -> None:
+    doc = loads("[[t]]\na.b = 1\n")
+    doc["t"][0]["a"]["c"] = {"q": 1}
+
+    assert dumps(doc) == "[[t]]\na.b = 1\n\n[t.a.c]\nq = 1\n"
+    assert loads(dumps(doc)) == {"t": [{"a": {"b": 1, "c": {"q": 1}}}]}
+
+
+def test_subtable_of_nested_dotted_key_inside_table_keeps_parent_prefix() -> None:
+    doc = loads("[t.u]\na.b.c = 1\n")
+    doc["t"]["u"]["a"]["b"]["d"] = {"e": 2}
+
+    assert dumps(doc) == "[t.u]\na.b.c = 1\n\n[t.u.a.b.d]\ne = 2\n"
+    assert loads(dumps(doc)) == {"t": {"u": {"a": {"b": {"c": 1, "d": {"e": 2}}}}}}
+
+
+def test_existing_key_not_swallowed_when_dotted_key_grows_a_subtable() -> None:
+    """`x` was written before the `[a.c]` header existed; once the dotted key
+    starts emitting one, `x` must not end up on the wrong side of it."""
+    doc = loads("a.b = 1\nx = 9\n")
+    doc["a"]["c"] = {}
+
+    assert loads(dumps(doc)) == {"a": {"b": 1, "c": {}}, "x": 9}
+
+
+def test_existing_key_in_table_not_swallowed_when_dotted_key_grows_a_subtable() -> None:
+    doc = loads("[t]\na.b = 1\nx = 9\n")
+    doc["t"]["a"]["c"] = {}
+
+    assert loads(dumps(doc)) == {"t": {"a": {"b": 1, "c": {}}, "x": 9}}
+
+
+def test_existing_key_in_aot_not_swallowed_when_dotted_key_grows_a_subtable() -> None:
+    doc = loads("[[t]]\na.b = 1\nx = 9\n")
+    doc["t"][0]["a"]["c"] = {}
+
+    assert loads(dumps(doc)) == {"t": [{"a": {"b": 1, "c": {}}, "x": 9}]}
+
+
+def test_dotted_key_with_inline_table_child_emits_no_header() -> None:
+    """An inline table renders on the dotted line itself, so it is still a
+    plain key-value pair and following keys keep being appended after it."""
+    doc = loads("a.b = 1\n")
+    inline = tomlkit.inline_table()
+    inline["x"] = 1
+    doc["a"]["c"] = inline
+    doc["z"] = 2
+
+    assert dumps(doc) == "a.b = 1\na.c = {x = 1}\nz = 2\n"
